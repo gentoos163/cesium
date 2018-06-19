@@ -1,98 +1,34 @@
 define([
-        '../Core/arraySlice',
-        '../Core/Cartesian2',
-        '../Core/Cartesian3',
-        '../Core/Cartesian4',
         '../Core/Check',
-        '../Core/Color',
         '../Core/combine',
-        '../Core/ComponentDatatype',
         '../Core/defaultValue',
         '../Core/defined',
         '../Core/defineProperties',
         '../Core/destroyObject',
-        '../Core/DeveloperError',
-        '../Core/FeatureDetection',
-        '../Core/getStringFromTypedArray',
         '../Core/getTimestamp',
         '../Core/JulianDate',
         '../Core/Math',
-        '../Core/Matrix3',
         '../Core/Matrix4',
-        '../Core/oneTimeWarning',
-        '../Core/OrthographicFrustum',
-        '../Core/Plane',
-        '../Core/PrimitiveType',
         '../Core/Resource',
-        '../Core/RuntimeError',
-        '../Core/TaskProcessor',
-        '../Core/Transforms',
-        '../Renderer/Buffer',
-        '../Renderer/BufferUsage',
-        '../Renderer/DrawCommand',
-        '../Renderer/Pass',
-        '../Renderer/RenderState',
-        '../Renderer/ShaderProgram',
-        '../Renderer/ShaderSource',
-        '../Renderer/VertexArray',
-        '../ThirdParty/when',
-        './BlendingState',
-        './Cesium3DTileBatchTable',
-        './Cesium3DTileFeature',
-        './Cesium3DTileFeatureTable',
         './ClippingPlaneCollection',
-        './getClipAndStyleCode',
-        './getClippingFunction',
         './PointCloud',
         './PointCloudEyeDomeLighting',
         './PointCloudShading',
         './SceneMode',
         './ShadowMode'
     ], function(
-        arraySlice,
-        Cartesian2,
-        Cartesian3,
-        Cartesian4,
         Check,
-        Color,
         combine,
-        ComponentDatatype,
         defaultValue,
         defined,
         defineProperties,
         destroyObject,
-        DeveloperError,
-        FeatureDetection,
-        getStringFromTypedArray,
         getTimestamp,
         JulianDate,
         CesiumMath,
-        Matrix3,
         Matrix4,
-        oneTimeWarning,
-        OrthographicFrustum,
-        Plane,
-        PrimitiveType,
         Resource,
-        RuntimeError,
-        TaskProcessor,
-        Transforms,
-        Buffer,
-        BufferUsage,
-        DrawCommand,
-        Pass,
-        RenderState,
-        ShaderProgram,
-        ShaderSource,
-        VertexArray,
-        when,
-        BlendingState,
-        Cesium3DTileBatchTable,
-        Cesium3DTileFeature,
-        Cesium3DTileFeatureTable,
         ClippingPlaneCollection,
-        getClipAndStyleCode,
-        getClippingFunction,
         PointCloud,
         PointCloudEyeDomeLighting,
         PointCloudShading,
@@ -107,10 +43,15 @@ define([
      * @constructor
      *
      * @param {Object} options Object with the following properties:
-     * @param {Clock} options.clock A Clock instance that is used when determining the value for the time dimension.
-     * @param {TimeIntervalCollection} options.times TimeIntervalCollection with its data property being an object containing a url to a Point Cloud tile and an optional transform.
-     * @param {PointCloudShading} options.pointCloudShading An object to control point attenuation based on geometric error and lighting.
-     * @param {Cesium3DTileStyle} options.pointCloudShading An object to control point attenuation based on geometric error and lighting.
+     * @param {Clock} options.clock A {@link Clock} instance that is used when determining the value for the time dimension.
+     * @param {TimeIntervalCollection} options.times A {@link TimeIntervalCollection} with its data property being an object containing a url to a Point Cloud tile and an optional transform.
+     * @param {Boolean} [options.show=true] Determines if the point cloud will be shown.
+     * @param {Matrix4} [options.modelMatrix=Matrix4.IDENTITY] A 4x4 transformation matrix that transforms the point cloud.
+     * @param {ShadowMode} [options.shadows=ShadowMode.ENABLED] Determines whether the point cloud casts or receives shadows from each light source.
+     * @param {Number} [options.maximumMemoryUsage=512] The maximum amount of memory in MB that can be used by the point cloud.
+     * @param {Object} [options.pointCloudShading] Options for constructing a {@link PointCloudShading} object to control point size based on geometric error and eye dome lighting.
+     * @param {Cesium3DTileStyle} [options.style] The style, defined using the {@link https://github.com/AnalyticalGraphicsInc/3d-tiles/tree/master/Styling|3D Tiles Styling language}, applied to each point in the point cloud.
+     * @param {ClippingPlaneCollection} [options.clippingPlanes] The {@link ClippingPlaneCollection} used to selectively disable rendering the point cloud.
      */
     function TimeDynamicPointCloud(options) {
         options = defaultValue(options, defaultValue.EMPTY_OBJECT);
@@ -120,29 +61,126 @@ define([
         Check.typeOf.object('options.times', options.times);
         //>>includeEnd('debug');
 
-        this.pointCloudShading = new PointCloudShading(options.pointCloudShading);
-        this.style = options.style;
-        this.clippingPlanes = options.clippingPlanes; // TODO : getter/setter for ownership
-        this.shadows = defaultValue(options.shadows, ShadowMode.ENABLED);
-        this.modelMatrix = Matrix4.clone(defaultValue(options.modelMatrix, Matrix4.IDENTITY));
+        /**
+         * Determines if the point cloud will be shown.
+         *
+         * @type {Boolean}
+         * @default true
+         */
         this.show = defaultValue(options.show, true);
 
+        /**
+         * A 4x4 transformation matrix that transforms the point cloud.
+         *
+         * @type {Matrix4}
+         * @default Matrix4.IDENTITY
+         */
+        this.modelMatrix = Matrix4.clone(defaultValue(options.modelMatrix, Matrix4.IDENTITY));
+
+        /**
+         * Determines whether the point cloud casts or receives shadows from each light source.
+         * <p>
+         * Enabling shadows has a performance impact. A point cloud that casts shadows must be rendered twice, once from the camera and again from the light's point of view.
+         * </p>
+         * <p>
+         * Shadows are rendered only when {@link Viewer#shadows} is <code>true</code>.
+         * </p>
+         *
+         * @type {ShadowMode}
+         * @default ShadowMode.ENABLED
+         */
+        this.shadows = defaultValue(options.shadows, ShadowMode.ENABLED);
+
+        /**
+         * The maximum amount of GPU memory (in MB) that may be used to cache point cloud frames.
+         *
+         * @memberof TimeDynamicPointCloud.prototype
+         *
+         * @type {Number}
+         * @default 512
+         *
+         * @see TimeDynamicPointCloud#totalMemoryUsageInBytes
+         */
+        this.maximumMemoryUsage = defaultValue(options.maximumMemoryUsage, 512);
+
+        /**
+         * Options for controlling point size based on geometric error and eye dome lighting.
+         * @type {PointCloudShading}
+         */
+        this.pointCloudShading = new PointCloudShading(options.pointCloudShading);
+
+        /**
+         * The style, defined using the
+         * {@link https://github.com/AnalyticalGraphicsInc/3d-tiles/tree/master/Styling|3D Tiles Styling language},
+         * applied to each point in the point cloud.
+         * <p>
+         * Assign <code>undefined</code> to remove the style, which will restore the visual
+         * appearance of the point cloud to its default when no style was applied.
+         * </p>
+         *
+         * @type {Cesium3DTileStyle}
+         *
+         * @example
+         * pointCloud.style = new Cesium.Cesium3DTileStyle({
+         *    color : {
+         *        conditions : [
+         *            ['${Classification} === 0', 'color("purple", 0.5)'],
+         *            ['${Classification} === 1', 'color("red")'],
+         *            ['true', '${COLOR}']
+         *        ]
+         *    },
+         *    show : '${Classification} !== 2'
+         * });
+         *
+         * @see {@link https://github.com/AnalyticalGraphicsInc/3d-tiles/tree/master/Styling|3D Tiles Styling language}
+         */
+        this.style = options.style;
+
+        this._clock = options.clock;
+        this._times = options.times;
+        this._clippingPlanes = options.clippingPlanes;
         this._pointCloudEyeDomeLighting = new PointCloudEyeDomeLighting();
         this._loadTimestamp = undefined;
         this._clippingPlanesState = 0;
         this._styleDirty = false;
         this._pickId = undefined;
-
-        var clock = options.clock;
-
-        this._clock = clock;
-        this._times = options.times;
-        this._frameIndex = -1;
+        this._totalMemoryUsageInBytes = 0;
         this._frames = [];
-
-        clock.onTick.addEventListener(this._clockOnTick, this);
-        this._clockOnTick(clock);
     }
+
+    defineProperties(TimeDynamicPointCloud.prototype, {
+        /**
+         * The {@link ClippingPlaneCollection} used to selectively disable rendering the point cloud.
+         *
+         * @memberof TimeDynamicPointCloud.prototype
+         *
+         * @type {ClippingPlaneCollection}
+         */
+        clippingPlanes : {
+            get : function() {
+                return this._clippingPlanes;
+            },
+            set : function(value) {
+                ClippingPlaneCollection.setOwner(value, this, '_clippingPlanes');
+            }
+        },
+
+        /**
+         * The total amount of GPU memory in bytes used by the point cloud.
+         *
+         * @memberof TimeDynamicPointCloud.prototype
+         *
+         * @type {Number}
+         * @readonly
+         *
+         * @see TimeDynamicPointCloud#maximumMemoryUsage
+         */
+        totalMemoryUsageInBytes : {
+            get : function() {
+                return this._totalMemoryUsageInBytes;
+            }
+        }
+    });
 
     function getFragmentShaderLoaded(fs) {
         return 'uniform vec4 czm_pickColor;\n' + fs;
@@ -158,6 +196,10 @@ define([
         };
     }
 
+    /**
+     * Marks the point cloud's {@link TimeDynamicPointCloud#style} as dirty, which forces all
+     * points to re-evaluate the style in the next frame.
+     */
     TimeDynamicPointCloud.prototype.makeStyleDirty = function() {
         this._styleDirty = true;
     };
@@ -204,20 +246,22 @@ define([
         return times.get(index);
     }
 
-    function loadFrame(that, interval) {
+    function requestFrame(that, interval) {
         var index = that._times.indexOf(interval.start);
-        var cache = that._cache;
-        if (!defined(cache[index])) {
-            cache[index] = {
+        var frames = that._frames;
+        var frame = frames[index];
+        if (!defined(frame)) {
+            frame = {
                 pointCloud : undefined,
                 transform : interval.data.transform,
-                timer : getTimestamp(),
+                loadDuration : getTimestamp(), // Updated after the frame is loaded
                 ready : false
             };
+            frames[index] = frame;
             Resource.fetchArrayBuffer({
                 url : interval.data.url
             }).then(function(arrayBuffer) {
-                cache[index].pointCloud = new PointCloud({
+                frame.pointCloud = new PointCloud({
                     arrayBuffer : arrayBuffer,
                     fragmentShaderLoaded : getFragmentShaderLoaded,
                     uniformMapLoaded : getUniformMapLoaded(that)
@@ -226,7 +270,7 @@ define([
                 throw error;
             });
         }
-        return cache[index];
+        return frame;
     }
 
     function prepareFrame(that, frame, frameState) {
@@ -236,21 +280,23 @@ define([
             return;
         }
 
-        if (!pointCloud.ready) {
+        if (!frame.ready) {
+            // Call update to prepare renderer resources. Don't render anything yet.
             var commandList = frameState.commandList;
             var lengthBeforeUpdate = commandList.length;
             pointCloud.update(frameState);
             if (pointCloud.ready) {
                 // Point cloud became ready this update
                 frame.ready = true;
-                frame.timer = getTimestamp() - frame.timer;
+                frame.loadDuration = getTimestamp() - frame.loadDuration;
+                that._totalMemoryUsageInBytes += frame.pointCloud.geometryByteLength;
                 commandList.length = lengthBeforeUpdate; // Don't allow preparing frame to insert commands.
             }
         }
     }
 
-    function preloadFrame(that, interval, frameState) {
-        var frame = loadFrame(that, interval);
+    function loadFrame(that, interval, frameState) {
+        var frame = requestFrame(that, interval);
         prepareFrame(that, frame, frameState);
         return frame;
     }
@@ -311,7 +357,7 @@ define([
 
         var currentInterval = getCurrentInterval(this);
         if (defined(currentInterval)) {
-            var frame = preloadFrame(this, currentInterval, frameState);
+            var frame = loadFrame(this, currentInterval, frameState);
             if (frame.ready) {
                 var pointCloud = frame.pointCloud;
                 var transform = defaultValue(frame.transform, Matrix4.IDENTITY);
@@ -332,8 +378,16 @@ define([
                     pointCloud.maximumAttenuation = defined(pointCloudShading.maximumAttenuation) ? pointCloudShading.maximumAttenuation : 10;
                 }
                 pointCloud.update(frameState);
+            } else {
+                // Look backwards for the last ready frame
+                // TODO : need the index
+                //for (var i = 0; i <
             }
+
         }
+
+        // var totalMemoryUsageInBytes = tileset.totalMemoryUsageInBytes;
+        // var maximumMemoryUsageInBytes = tileset._maximumMemoryUsage * 1024 * 1024;
 
         var lengthAfterUpdate = commandList.length;
         var addedCommandsLength = lengthAfterUpdate - lengthBeforeUpdate;
@@ -341,7 +395,7 @@ define([
         // Start loading the approaching frame
         var approachingInterval = getApproachingInterval(this);
         if (defined(approachingInterval)) {
-            preloadFrame(this, approachingInterval);
+            loadFrame(this, approachingInterval, frameState);
         }
 
         if (defined(pointCloudShading) && pointCloudShading.attenuation && pointCloudShading.eyeDomeLighting && (addedCommandsLength > 0)) {
@@ -354,15 +408,16 @@ define([
     };
 
     TimeDynamicPointCloud.prototype.destroy = function() {
-        var frames = this._cache;
+        var frames = this._frames;
         var framesLength = frames.length;
         for (var i = 0; i < framesLength; ++i) {
             var frame = frames[i];
-            if (defined(frame)) {
-                frame.destroy();
+            if (defined(frame) && defined(frame.pointCloud)) {
+                frame.pointCloud.destroy();
             }
         }
         this._frames = undefined;
+        this._clippingPlanes = this._clippingPlanes && this._clippingPlanes.destroy();
         this._pickId = this._pickId && this._pickId.destroy();
         return destroyObject(this);
     };
